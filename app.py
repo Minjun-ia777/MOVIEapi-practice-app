@@ -1,92 +1,64 @@
 # app.py
 import streamlit as st
-import googleapiclient.discovery
-import isodate # To parse video duration
+import requests
 
-# --- API Configuration ---
-try:
-    API_KEY = st.secrets["YOUTUBE_API_KEY"]
-except KeyError:
-    st.error("YouTube API Key not found. Please add it to your Streamlit Secrets.")
-    st.stop()
-
-# --- Helper Function to Parse Duration ---
-def parse_duration(duration_str):
-    """Converts YouTube's ISO 8601 duration string (e.g., 'PT2M30S') 
-       into a human-readable format (e.g., '2:30')."""
-    duration = isodate.parse_duration(duration_str)
-    total_seconds = int(duration.total_seconds())
-    
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    seconds = total_seconds % 60
-    
-    if hours > 0:
-        return f"{hours}:{minutes:02}:{seconds:02}"
-    else:
-        return f"{minutes}:{seconds:02}"
-
-# --- Main App ---
+# This is the API endpoint. No key needed!
+BASE_URL = "https://www.boredapi.com/api/activity/"
 
 st.set_page_config(layout="wide")
-st.title("🔥 Today's Top 25 Trending YouTube Videos")
-st.write("This app uses the YouTube Data API to show today's trending videos (US).")
+st.title("🥱 The Cure for Boredom")
+st.write("Can't decide what to do? Let a public API decide for you.")
 
-try:
-    # 1. Build the YouTube API service
-    youtube = googleapiclient.discovery.build(
-        "youtube", "v3", developerKey=API_KEY)
+st.divider()
 
-    # 2. Make the API request for "most popular" (trending) videos
-    request = youtube.videos().list(
-        part="snippet,contentDetails,statistics",
-        chart="mostPopular",
-        regionCode="US", # You can change this to your country code (e.g., "KR")
-        maxResults=25
-    )
+# --- Interactive Controls ---
+st.header("What kind of activity are you looking for?")
+
+# Create columns for a cleaner layout
+col1, col2 = st.columns(2)
+
+with col1:
+    # Dropdown to select a type of activity
+    activity_type = st.selectbox("Select a type (optional):", 
+                                 ["(any)", "education", "recreational", "social", 
+                                  "diy", "charity", "cooking", "relaxation", 
+                                  "music", "busywork"])
+
+with col2:
+    # Slider to select number of people
+    participants = st.slider("How many people are involved?", 1, 5, 1)
+
+
+# --- API Call Button ---
+if st.button("Find me an activity!", type="primary"):
     
-    # 3. Execute the request
-    # This is the 1-unit API call. We cache it so it doesn't re-run every second.
-    @st.cache_data(ttl=3600) # Cache for 1 hour
-    def get_trending_videos():
-        response = request.execute()
-        return response.get("items", [])
-
-    videos = get_trending_videos()
-
-    if not videos:
-        st.warning("No trending videos found. The API might be down.")
-        st.stop()
-
-    # 4. Display the videos in a grid
-    cols = st.columns(3) # Create 3 columns
+    # 1. Build the API query string
+    params = {}
+    if activity_type != "(any)":
+        params["type"] = activity_type
     
-    for i, video in enumerate(videos):
-        # Get all the details
-        snippet = video["snippet"]
-        stats = video["statistics"]
-        content = video["contentDetails"]
+    params["participants"] = participants
+    
+    try:
+        # 2. Call the API
+        response = requests.get(BASE_URL, params=params)
+        response.raise_for_status() # Check for HTTP errors
         
-        title = snippet["title"]
-        channel = snippet["channelTitle"]
-        thumbnail_url = snippet["thumbnails"]["medium"]["url"]
+        data = response.json()
         
-        # Safely get view count and format it
-        view_count = int(stats.get("viewCount", 0))
+        # 3. Display the result
+        if data.get("activity"):
+            st.success("Here's your idea!")
+            
+            st.subheader(data["activity"])
+            
+            st.write(f"**Type:** {data['type'].title()}")
+            
+            if data.get("link"):
+                st.write(f"**Learn more:** {data['link']}")
         
-        # Parse the duration
-        duration = parse_duration(content["duration"])
+        elif data.get("error"):
+            st.warning(f"No activity found with those settings. Try being less specific!")
 
-        # Display in the next available column
-        with cols[i % 3]: # Cycles through columns 0, 1, 2
-            st.subheader(title)
-            st.image(thumbnail_url)
-            st.write(f"**By:** {channel}")
-            st.write(f"**Duration:** {duration}")
-            st.write(f"**Views:** {view_count:,.0f}") # Formats 1000000 -> 1,000,000
-            st.link_button("Watch on YouTube", f"https://www.youtube.com/watch?v={video['id']}")
-            st.divider()
-
-except Exception as e:
-    st.error(f"An error occurred: {e}")
-    st.info("This can happen if the API key is incorrect or the daily quota has been exceeded.")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to connect to the Bored API. Error: {e}")
