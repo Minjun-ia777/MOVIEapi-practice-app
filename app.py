@@ -4,7 +4,7 @@ import requests
 # --- API Key Configuration ---
 # We will load this from Streamlit's Secrets
 try:
-    API_KEY = st.secrets["HIYEg4cAjPfAOOUs3saHuY2evmhoj60B"]
+    API_KEY = st.secrets["GIPHY_API_KEY"]
 except KeyError:
     st.error("GIPHY_API_KEY not found. Please add it to your Streamlit Secrets.")
     st.stop()
