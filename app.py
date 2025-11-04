@@ -94,7 +94,7 @@ if selected_movie_title:
             # Display Title and Tagline
             st.title(details["title"])
             if details["tagline"]:
-                st.subheader(f_"{details['tagline']}_")
+                st.subheader(f"_{details['tagline']}_")
 
             # Display Rating, Duration, and Release Date
             rating = f"⭐ {details['vote_average']:.1f}/10"
