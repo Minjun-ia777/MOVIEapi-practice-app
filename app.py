@@ -2,63 +2,32 @@
 import streamlit as st
 import requests
 
-# This is the API endpoint. No key needed!
-BASE_URL = "https://www.boredapi.com/api/activity/"
+# This API is free, fast, and needs no key.
+BASE_URL = "https://dog.ceo/api/breeds/image/random"
 
 st.set_page_config(layout="wide")
-st.title("🥱 The Cure for Boredom")
-st.write("Can't decide what to do? Let a public API decide for you.")
+st.title("🐶 Random Dog Pic Generator")
+st.write("Click the button for a new dog picture! (Using a reliable, no-key API)")
 
-st.divider()
-
-# --- Interactive Controls ---
-st.header("What kind of activity are you looking for?")
-
-# Create columns for a cleaner layout
-col1, col2 = st.columns(2)
-
-with col1:
-    # Dropdown to select a type of activity
-    activity_type = st.selectbox("Select a type (optional):", 
-                                 ["(any)", "education", "recreational", "social", 
-                                  "diy", "charity", "cooking", "relaxation", 
-                                  "music", "busywork"])
-
-with col2:
-    # Slider to select number of people
-    participants = st.slider("How many people are involved?", 1, 5, 1)
-
-
-# --- API Call Button ---
-if st.button("Find me an activity!", type="primary"):
-    
-    # 1. Build the API query string
-    params = {}
-    if activity_type != "(any)":
-        params["type"] = activity_type
-    
-    params["participants"] = participants
+# This button is the only thing we need!
+if st.button("Get a new dog!", type="primary"):
     
     try:
-        # 2. Call the API
-        response = requests.get(BASE_URL, params=params)
+        # 1. Call the API
+        response = requests.get(BASE_URL)
         response.raise_for_status() # Check for HTTP errors
         
         data = response.json()
         
-        # 3. Display the result
-        if data.get("activity"):
-            st.success("Here's your idea!")
+        # 2. Check the response and display the image
+        if data["status"] == "success":
+            image_url = data["message"]  # The image URL is in the "message" field
             
-            st.subheader(data["activity"])
-            
-            st.write(f"**Type:** {data['type'].title()}")
-            
-            if data.get("link"):
-                st.write(f"**Learn more:** {data['link']}")
+            st.image(image_url, caption="Here's a good dog!")
+            st.write(f"Image URL: {image_url}") # Show the URL as well
         
-        elif data.get("error"):
-            st.warning(f"No activity found with those settings. Try being less specific!")
+        else:
+            st.error("The API returned an error, but at least it's online!")
 
     except requests.exceptions.RequestException as e:
-        st.error(f"Failed to connect to the Bored API. Error: {e}")
+        st.error(f"Failed to connect to the Dog API. Error: {e}")
