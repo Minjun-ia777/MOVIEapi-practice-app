@@ -1,121 +1,92 @@
 # app.py
 import streamlit as st
-import requests
+import googleapiclient.discovery
+import isodate # To parse video duration
 
 # --- API Configuration ---
-# DO NOT hardcode your API key here. We will use Streamlit Secrets.
 try:
-    API_KEY = st.secrets["TMDB_API_KEY"]
+    API_KEY = st.secrets["YOUTUBE_API_KEY"]
 except KeyError:
-    st.error("TMDb API Key not found. Please add it to your Streamlit Secrets.")
+    st.error("YouTube API Key not found. Please add it to your Streamlit Secrets.")
     st.stop()
 
-BASE_URL = "https://api.themoviedb.org/3"
-IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500"
+# --- Helper Function to Parse Duration ---
+def parse_duration(duration_str):
+    """Converts YouTube's ISO 8601 duration string (e.g., 'PT2M30S') 
+       into a human-readable format (e.g., '2:30')."""
+    duration = isodate.parse_duration(duration_str)
+    total_seconds = int(duration.total_seconds())
+    
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    
+    if hours > 0:
+        return f"{hours}:{minutes:02}:{seconds:02}"
+    else:
+        return f"{minutes}:{seconds:02}"
 
-# --- Helper Functions to Call TMDb API ---
-
-def search_movies(query):
-    """Search for movies based on a query."""
-    search_url = f"{BASE_URL}/search/movie"
-    params = {"api_key": API_KEY, "query": query, "language": "en-US"}
-    response = requests.get(search_url, params=params)
-    if response.status_code == 200:
-        return response.json().get("results", [])
-    return []
-
-def get_movie_details(movie_id):
-    """Get detailed information for a specific movie."""
-    details_url = f"{BASE_URL}/movie/{movie_id}"
-    params = {"api_key": API_KEY, "language": "en-US"}
-    response = requests.get(details_url, params=params)
-    if response.status_code == 200:
-        return response.json()
-    return None
-
-def get_movie_trailer(movie_id):
-    """Get the YouTube trailer key for a movie."""
-    videos_url = f"{BASE_URL}/movie/{movie_id}/videos"
-    params = {"api_key": API_KEY, "language": "en-US"}
-    response = requests.get(videos_url, params=params)
-    if response.status_code == 200:
-        videos = response.json().get("results", [])
-        for video in videos:
-            if video["site"] == "YouTube" and video["type"] == "Trailer":
-                return video["key"]
-    return None
-
-# --- Streamlit App Layout ---
+# --- Main App ---
 
 st.set_page_config(layout="wide")
-st.title("🎬 Super Movie Database")
-st.write("Find details, ratings, and trailers for any movie!")
+st.title("🔥 Today's Top 25 Trending YouTube Videos")
+st.write("This app uses the YouTube Data API to show today's trending videos (US).")
 
-# --- Search Bar ---
-search_query = st.text_input("Search for a movie...", "")
+try:
+    # 1. Build the YouTube API service
+    youtube = googleapiclient.discovery.build(
+        "youtube", "v3", developerKey=API_KEY)
 
-if not search_query:
-    st.info("Start by searching for a movie title.")
-    st.stop()
-
-# --- Search Results ---
-movie_list = search_movies(search_query)
-
-if not movie_list:
-    st.warning("No movies found for that query.")
-    st.stop()
-
-# --- Movie Selection ---
-# Use movie titles for the selectbox, but store the ID
-movie_titles = [f"{movie['title']} ({movie['release_date'][:4]})" for movie in movie_list if 'release_date' in movie and movie['release_date']]
-movie_ids = {f"{movie['title']} ({movie['release_date'][:4]})": movie['id'] for movie in movie_list if 'release_date' in movie and movie['release_date']}
-
-selected_movie_title = st.selectbox("Select a movie from the results:", movie_titles)
-
-if selected_movie_title:
-    selected_movie_id = movie_ids[selected_movie_title]
+    # 2. Make the API request for "most popular" (trending) videos
+    request = youtube.videos().list(
+        part="snippet,contentDetails,statistics",
+        chart="mostPopular",
+        regionCode="US", # You can change this to your country code (e.g., "KR")
+        maxResults=25
+    )
     
-    # Fetch "super complete" details
-    details = get_movie_details(selected_movie_id)
+    # 3. Execute the request
+    # This is the 1-unit API call. We cache it so it doesn't re-run every second.
+    @st.cache_data(ttl=3600) # Cache for 1 hour
+    def get_trending_videos():
+        response = request.execute()
+        return response.get("items", [])
+
+    videos = get_trending_videos()
+
+    if not videos:
+        st.warning("No trending videos found. The API might be down.")
+        st.stop()
+
+    # 4. Display the videos in a grid
+    cols = st.columns(3) # Create 3 columns
     
-    if details:
-        # --- Display Movie Details ---
-        col1, col2 = st.columns([1, 2])
+    for i, video in enumerate(videos):
+        # Get all the details
+        snippet = video["snippet"]
+        stats = video["statistics"]
+        content = video["contentDetails"]
         
-        with col1:
-            # Display Poster
-            if details["poster_path"]:
-                poster_url = f"{IMAGE_BASE_URL}{details['poster_path']}"
-                st.image(poster_url, caption=details["title"])
-            else:
-                st.write("No poster available.")
+        title = snippet["title"]
+        channel = snippet["channelTitle"]
+        thumbnail_url = snippet["thumbnails"]["medium"]["url"]
+        
+        # Safely get view count and format it
+        view_count = int(stats.get("viewCount", 0))
+        
+        # Parse the duration
+        duration = parse_duration(content["duration"])
 
-        with col2:
-            # Display Title and Tagline
-            st.title(details["title"])
-            if details["tagline"]:
-                st.subheader(f"_{details['tagline']}_")
-
-            # Display Rating, Duration, and Release Date
-            rating = f"⭐ {details['vote_average']:.1f}/10"
-            duration = f"⏳ {details['runtime']} minutes"
-            release = f"🗓️ {details['release_date']}"
-            st.write(f"{rating}  |  {duration}  |  {release}")
-
-            # Display Genres
-            genres = [genre["name"] for genre in details["genres"]]
-            st.write(f"**Genres:** {', '.join(genres)}")
-            
-            # Display Overview
-            st.header("Overview")
-            st.write(details["overview"])
-
-        # --- Display Trailer ---
-        trailer_key = get_movie_trailer(selected_movie_id)
-        if trailer_key:
+        # Display in the next available column
+        with cols[i % 3]: # Cycles through columns 0, 1, 2
+            st.subheader(title)
+            st.image(thumbnail_url)
+            st.write(f"**By:** {channel}")
+            st.write(f"**Duration:** {duration}")
+            st.write(f"**Views:** {view_count:,.0f}") # Formats 1000000 -> 1,000,000
+            st.link_button("Watch on YouTube", f"https://www.youtube.com/watch?v={video['id']}")
             st.divider()
-            st.header("Watch the Trailer")
-            trailer_url = f"https://www.youtube.com/watch?v={trailer_key}"
-            st.video(trailer_url)
-        else:
-            st.write("No trailer found.")
+
+except Exception as e:
+    st.error(f"An error occurred: {e}")
+    st.info("This can happen if the API key is incorrect or the daily quota has been exceeded.")
